@@ -3,6 +3,7 @@
 
 #include "ecu.h"
 
+#if 0
 static const unsigned char RESP_TABLE_10[] = {
     0x10, 0x80, // RPM
     0x18, // TPS v
@@ -20,7 +21,7 @@ static const unsigned char RESP_TABLE_10[] = {
     0x00, 0x00, // fuel injection
     0x80  // res
 };
-
+#endif
 
 float ecu_data_to_volts(int v)
 {
@@ -46,7 +47,7 @@ void ecu_parse_table(unsigned char *buf, int n)
 {
     dump_buf(buf, n, "table data");
 
-    const unsigned char *resp = RESP_TABLE_10;
+    //const unsigned char *resp = RESP_TABLE_10;
 
     //DBG("SPD  : %i kph\n", resp[13]);
     //DBG("RPM  : %i\n", ecu_data_to_rpm(resp[0], resp[1]));

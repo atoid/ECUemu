@@ -22,12 +22,17 @@
 const unsigned char REQ_WAKEUP[]     = { 0xFE, 0x04, 0xFF, 0xFF };
 const unsigned char REQ_INITIALIZE[] = { 0x72, 0x05, 0x00, 0xF0, 0x99 };
 //const char REQ_READ_TABLE[]  = { 0x72, 0x07, 0x72, 0x11, 0x00, 0x14, 0xF0 };
-const unsigned char REQ_READ_TABLE_0A[] = { 0x72, 0x05, 0x71, 0x0a, 0x0e };
-const unsigned char REQ_READ_TABLE_10[] = { 0x72, 0x05, 0x71, 0x10, 0x08 };
+//const unsigned char REQ_READ_TABLE_0A[] = { 0x72, 0x05, 0x71, 0x0a, 0x0e };
+//const unsigned char REQ_READ_TABLE_10[] = { 0x72, 0x05, 0x71, 0x10, 0x08 };
+//const unsigned char REQ_READ_TABLE_20[] = { 0x72, 0x05, 0x71, 0x20, 0xf8 };
+
 const unsigned char REQ_READ_TABLE_11[] = { 0x72, 0x05, 0x71, 0x11, 0x07 };
-const unsigned char REQ_READ_TABLE_20[] = { 0x72, 0x05, 0x71, 0x20, 0xf8 }; 
+const unsigned char REQ_READ_TABLE_D1[] = { 0x72, 0x05, 0x71, 0xd1, 0x47 };
 
 const unsigned char RESP_INITIALIZE[] = { 0x02, 0x04, 0x00, 0xFA };
+
+static const char *ecu_dev = "/dev/ttyUSB0";
+static const char *bt_dev = "/dev/rfcomm0";
 
 static int fd = -1;
 static int fake_writes = 0;
@@ -236,22 +241,64 @@ void usage(void)
     printf("usage: ecu [options]\n");
     printf("options:\n");
     printf(" -d <device> e.g. /dev/ttyUSB0\n");
+    printf(" -D <device> e.g. /dev/rfcomm0\n");
     printf(" -b <custom baud>\n");
+    printf(" -x execute main application\n");
     printf(" -r <table nbr> read table\n");
     printf(" -f fake writes\n");
     printf(" -h usage\n");
     exit(0);
 }
 
+int main_app(void)
+{
+    int res = 0;
+    DBG("running main application\n");
+
+    coms_init(bt_dev);
+
+    while (1)
+    {
+        if (ecu_init() == 0)
+        {
+            unsigned char buf[64];
+            while (1)
+            {
+                ecu_write(REQ_READ_TABLE_11, sizeof(REQ_READ_TABLE_11));
+                int n = ecu_read(buf, 30);
+                ecu_write(REQ_READ_TABLE_D1, sizeof(REQ_READ_TABLE_D1));
+                n += ecu_read(buf + n, 16);
+                coms_dump_hex(buf, n);
+
+                if (n < 46)
+                {
+                    //DBG("error in ecu communication\n");
+                    //break;
+                }
+
+                sleep(2);
+            }
+        }
+
+        sleep(5);
+    }
+
+    DBG("exit main application");
+    return res;
+}
+
 int main(int argc, char *argv[])
 {
-    const char *dev = "/dev/ttyUSB0";
     int opt;
+    int do_main = 0;
 
-    while( (opt = getopt( argc, argv, "fhb:d:r:" )) != -1 ) {
+    while( (opt = getopt( argc, argv, "fhxb:d:r:D:" )) != -1 ) {
         switch( opt ) {
             case 'd':
-                dev = optarg;
+                ecu_dev = optarg;
+                break;
+            case 'D':
+                bt_dev = optarg;
                 break;
             case 'b':
                 custom_baud = atoi(optarg);
@@ -271,12 +318,15 @@ int main(int argc, char *argv[])
             case 'r':
                 table_nbr = atoi(optarg);
                 break;
+            case 'x':
+                do_main = 1;
+                break;
             default:
                 break;
         }
     }
 
-    fd = open(dev, O_RDWR | O_NOCTTY);
+    fd = open(ecu_dev, O_RDWR | O_NOCTTY);
 
     if (fd > 0)
     {
@@ -284,6 +334,11 @@ int main(int argc, char *argv[])
         {
             perror("port init");
             return -1;
+        }
+
+        if (do_main)
+        {
+            return main_app();
         }
 
         ecu_init();

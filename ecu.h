@@ -14,7 +14,9 @@ int ecu_data_to_rpm(int v1, int v2);
 void ecu_parse_table(unsigned char *buf, int n);
 
 /* ecu_coms.c */
-void coms_listen(const char *dev);
-void coms_write(const char *dev, const char *data, int n);
+void coms_listen();
+void coms_write(const char *buf, int n);
+void coms_dump_hex(const unsigned char *buf, int n);
+void coms_init(const char *bt_dev);
 
 #endif

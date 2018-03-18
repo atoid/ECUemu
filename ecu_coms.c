@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <sys/types.h>
@@ -7,11 +8,16 @@
 #include <fcntl.h>
 #include <poll.h>
 
+#include <pthread.h>
+#include <signal.h>
+
 #include "ecu.h"
 
+static const char *dev = "/dev/rfcomm0";
 static int fd = -1;
+static pthread_t rfcomm;
 
-void coms_listen(const char *dev)
+void coms_listen()
 {
     char buf[80];
     fd = open(dev, O_RDWR);
@@ -72,7 +78,7 @@ void coms_listen(const char *dev)
     DBG("exit listener...\n");
 }
 
-void coms_write(const char *dev, const char *data, int n)
+void coms_write(const char *buf, int n)
 {
     if (fd < 0)
     {
@@ -81,36 +87,75 @@ void coms_write(const char *dev, const char *data, int n)
 
     if (fd > 0)
     {
-        int res = write(fd, data, n);
+        int res = write(fd, buf, n);
         if (res != n)
         {
             close(fd);
-
-            sleep(1);
-            fd = open(dev, O_RDWR);
-            sleep(1);
-            close(fd);
-
-            struct stat tmp;
-            while (stat(dev, &tmp) == 0)
-            {
-                sleep(1);
-            }
-
             fd = -1;
-        } 
+            sleep(2);
+        }
     }
 }
 
+void coms_dump_hex(const unsigned char *buf, int n)
+{
+    char str[256];
+
+    for (int i = 0; i < n; i++)
+    {
+        sprintf(str + 3*i, "%02X ", buf[i]);
+    }
+
+    sprintf(str + 3*n, "\n");
+    coms_write(str, 3*n+1);
+}
+
+void *coms_thread(void *param)
+{
+    char spare_dev[80];
+    char cmd[80];
+    int current_dev = atoi(dev + strlen(dev)-1);
+
+    while (1)
+    {
+        struct stat tmp;
+        if (stat(dev, &tmp) == 0)
+        {
+            sprintf(spare_dev, "/dev/rfcomm%i", ++current_dev);
+            DBG("rfcomm device is in use, changing to %s\n", spare_dev);
+            dev = (const char *) spare_dev;
+            continue;
+        }
+
+        sprintf(cmd, "rfcomm listen %s", dev);
+        int res = system(cmd);
+        DBG("rfcomm signalled to disconnect: %i\n", res);
+        if (res != 0)
+        {
+            break;
+        }
+        sleep(3);
+    }
+
+    return 0;
+}
+
+void coms_init(const char *bt_dev)
+{
+    dev = bt_dev;
+    pthread_create(&rfcomm, NULL, coms_thread, NULL);
+}
 
 #ifdef __HAS_MAIN__
 
 int main(void)
 {
+    coms_init();
+
     while (1)
     {
-        //coms_listen("/dev/rfcomm0");
-        coms_write("/dev/rfcomm0", "moimoi\n", 7);
+        //coms_listen();
+        coms_write("moimoi\n", 7);
         sleep(1);
     }
 
