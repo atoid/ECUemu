@@ -1,0 +1,13 @@
+ecu initialize
+ecu response
+length 13 bytes
+ FE 04 FF FF 72 05 00 F0 99 02 04 00 FA
+read table 61
+table data
+length 30 bytes
+ 72 05 71 61 B7 02 19 71 61 00 00 1C 00 C3 2E C3 2E 90 62 FF FF 77 00 00 00 80 69 1D 14 94
+SPD  : 0 kph
+RPM  : 4224
+ECT  : 72 deg C
+IAT  : 52 deg C
+VBAT : 12.2 V

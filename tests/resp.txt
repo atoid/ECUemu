@@ -1,0 +1,4 @@
+ecu initialize
+ecu response
+length 13 bytes
+ FE 04 FF FF 72 05 00 F0 99 02 04 00 FA
