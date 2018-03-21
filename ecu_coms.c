@@ -132,6 +132,7 @@ void *coms_thread(void *param)
         DBG("rfcomm signalled to disconnect: %i\n", res);
         if (res != 0)
         {
+            DBG("rfcomm exit, hit Ctrl+C again to exit main\n");
             break;
         }
         sleep(3);

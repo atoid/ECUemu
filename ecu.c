@@ -31,6 +31,18 @@ const unsigned char REQ_READ_TABLE_D1[] = { 0x72, 0x05, 0x71, 0xd1, 0x47 };
 
 const unsigned char RESP_INITIALIZE[] = { 0x02, 0x04, 0x00, 0xFA };
 
+const unsigned char RESP_10_1[] = 
+ {0x72, 0x05, 0x71, 0x11, 0x07 };
+
+const unsigned char RESP_10_2[] = 
+ {0x02, 0x19, 0x71, 0x11, 0x00, 0x00, 0x1C, 0x00, 0xC3, 0x2E, 0xC3, 0x2E, 0x90, 0x62, 0xFF, 0xFF, 0x77, 0x00, 0x00, 0x00, 0x80, 0x69, 0x1D, 0x14, 0xE4};
+
+const unsigned char RESP_D1_1[] = 
+ {0x72, 0x05, 0x71, 0xD1, 0x47};
+
+const unsigned char RESP_D1_2[] = 
+ {0x02, 0x0B, 0x71, 0xD1, 0x83, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2E};
+
 static const char *ecu_dev = "/dev/ttyUSB0";
 static const char *bt_dev = "/dev/rfcomm0";
 
@@ -244,6 +256,7 @@ void usage(void)
     printf(" -D <device> e.g. /dev/rfcomm0\n");
     printf(" -b <custom baud>\n");
     printf(" -x execute main application\n");
+    printf(" -e execute emulator application\n");
     printf(" -r <table nbr> read table\n");
     printf(" -f fake writes\n");
     printf(" -h usage\n");
@@ -287,12 +300,68 @@ int main_app(void)
     return res;
 }
 
+int emu_app(void)
+{
+    int n = 0;
+
+    DBG("running emu application\n");
+    while (1)
+    {
+        unsigned char buf[64];
+        unsigned char *ptr;
+
+        if (n <= 0)
+        {
+            n = ecu_read(buf, 30);
+            ptr = buf;
+        }
+
+        if (n > 0)
+        {
+            switch (ptr[2])
+            {
+            case 0xff:
+                DBG("WAKEUP received\n");
+                break;
+            case 0x00:
+                DBG("INIT received\n");
+                ecu_write(RESP_INITIALIZE, sizeof(RESP_INITIALIZE));
+                break;
+            case 0x71:
+                DBG("READ received for table %02X\n", ptr[3]);
+                if (ptr[3] == 0x10 || ptr[3] == 0x11)
+                {
+                    ecu_write(RESP_10_1, sizeof(RESP_10_1));
+                    ecu_write(RESP_10_2, sizeof(RESP_10_2));
+                }
+
+                if (ptr[3] == 0xd1)
+                {
+                    ecu_write(RESP_D1_1, sizeof(RESP_D1_1));
+                    ecu_write(RESP_D1_2, sizeof(RESP_D1_2));
+                }
+                break;
+            default:
+                DBG("Unknown message %02X\n", ptr[2]);
+                break;
+            }
+
+            n -= ptr[1];
+            ptr += ptr[1];
+        }
+    }
+
+    return 0;
+}
+
+
 int main(int argc, char *argv[])
 {
     int opt;
     int do_main = 0;
+    int do_emu = 0;
 
-    while( (opt = getopt( argc, argv, "fhxb:d:r:D:" )) != -1 ) {
+    while( (opt = getopt( argc, argv, "fhxeb:d:r:D:" )) != -1 ) {
         switch( opt ) {
             case 'd':
                 ecu_dev = optarg;
@@ -321,6 +390,8 @@ int main(int argc, char *argv[])
             case 'x':
                 do_main = 1;
                 break;
+            case 'e':
+                do_emu = 1;
             default:
                 break;
         }
@@ -339,6 +410,11 @@ int main(int argc, char *argv[])
         if (do_main)
         {
             return main_app();
+        }
+
+        if (do_emu)
+        {
+            return emu_app();
         }
 
         ecu_init();
