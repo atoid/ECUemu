@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
+#include <time.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -50,6 +51,7 @@ static int fd = -1;
 static int fake_writes = 0;
 static int custom_baud = 0;
 static int table_nbr = -1;
+static struct timespec *read_timing = 0;
 
 static unsigned char REQ_READ_TABLE_XX[] = { 0x72, 0x05, 0x71, 0x00, 0x00 }; 
 
@@ -213,6 +215,16 @@ int ecu_read(unsigned char *buf, int n)
 
         if (nread > 0)
         {
+            if (read_timing)
+            {
+                struct timespec ts;
+                clock_gettime(CLOCK_MONOTONIC, &ts);
+                for (int j = 0; j < nread; j++)
+                {
+                    read_timing[i+j] = ts;
+                }
+            }
+
             i += nread;
             to_read -= nread;
         }
@@ -275,6 +287,7 @@ int main_app(void)
         if (ecu_init() == 0)
         {
             unsigned char buf[64];
+
             while (1)
             {
                 ecu_write(REQ_READ_TABLE_11, sizeof(REQ_READ_TABLE_11));
@@ -302,18 +315,31 @@ int main_app(void)
 
 int emu_app(void)
 {
+    unsigned char buf[64];
     int n = 0;
+    struct timespec *tptr;
+
+    read_timing = (struct timespec *) malloc(64 * sizeof(struct timespec));
+
 
     DBG("running emu application\n");
     while (1)
     {
-        unsigned char buf[64];
         unsigned char *ptr;
 
         if (n <= 0)
         {
             n = ecu_read(buf, 30);
             ptr = buf;
+            tptr = read_timing; 
+
+            if (n > 0 && ptr[0] == 0x00)
+            {
+                DBG("%li BREAK received\n", tptr->tv_nsec/1000);
+                ptr++;
+                tptr++;
+                n--;
+            }
         }
 
         if (n > 0)
@@ -321,14 +347,14 @@ int emu_app(void)
             switch (ptr[2])
             {
             case 0xff:
-                DBG("WAKEUP received\n");
+                DBG("%li WAKEUP received\n", tptr->tv_nsec/1000);
                 break;
             case 0x00:
-                DBG("INIT received\n");
+                DBG("%li INIT received\n", tptr->tv_nsec/1000);
                 ecu_write(RESP_INITIALIZE, sizeof(RESP_INITIALIZE));
                 break;
             case 0x71:
-                DBG("READ received for table %02X\n", ptr[3]);
+                DBG("%li READ received for table %02X\n", tptr->tv_nsec/1000, ptr[3]);
                 if (ptr[3] == 0x10 || ptr[3] == 0x11)
                 {
                     ecu_write(RESP_10_1, sizeof(RESP_10_1));
@@ -342,12 +368,17 @@ int emu_app(void)
                 }
                 break;
             default:
-                DBG("Unknown message %02X\n", ptr[2]);
+                DBG("Unknown message\n");
+                for (int i = 0; i < n; i++)
+                {
+                    DBG(" %02X\n", buf[i]);
+                }
                 break;
             }
 
             n -= ptr[1];
             ptr += ptr[1];
+            tptr += ptr[1];
         }
     }
 
