@@ -98,8 +98,8 @@ int port_init(void)
     tio.c_oflag = 0;
     tio.c_cflag = CS8 | CLOCAL | CREAD;
     tio.c_lflag = 0;
-    //cfsetspeed(&tio, B38400);
-    cfsetspeed(&tio, B9600);
+    cfsetspeed(&tio, B38400);
+    //cfsetspeed(&tio, B9600);
     tio.c_cc[VMIN] = 0;
     tio.c_cc[VTIME] = 0;
     if (tcsetattr(fd, TCSANOW, &tio) < 0)
@@ -323,6 +323,18 @@ int emu_app(void)
 
 
     DBG("running emu application\n");
+
+    /*while (1)
+    {
+        n = ecu_read(buf, 30);
+
+        for (int i = 0; i < n; i++)
+        {
+            DBG("%li received %02X\n", read_timing[i].tv_nsec/1000, buf[i]);
+        }
+    }*/
+
+
     while (1)
     {
         unsigned char *ptr;
@@ -344,6 +356,9 @@ int emu_app(void)
 
         if (n > 0)
         {
+            //DBG("sender: %02X\n", ptr[0]);
+            //DBG("length: %02X\n", ptr[1]);
+
             switch (ptr[2])
             {
             case 0xff:
@@ -371,7 +386,7 @@ int emu_app(void)
                 DBG("Unknown message\n");
                 for (int i = 0; i < n; i++)
                 {
-                    DBG(" %02X\n", buf[i]);
+                    DBG("%li %02X\n", tptr[i].tv_nsec/1000, buf[i]);
                 }
                 break;
             }
