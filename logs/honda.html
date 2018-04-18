@@ -1,0 +1,186 @@
+<html>
+<head>
+<title>Honda ECU viewer</title>
+
+<link rel="stylesheet" href="http://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+<style>
+
+table, th, td {
+    border: 1px solid black;
+}
+
+table {
+    display: inline-block;
+}
+
+td {
+    min-width: 30px;
+    text-align: center;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<script src="http://code.jquery.com/jquery-1.12.4.min.js"></script>
+  
+<script src="http://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+
+<script>
+
+"use strict";
+
+var helps_11 = [
+    "Sender",
+    "Length",
+    "Cmd",
+    "Table",
+    "RPMhi",
+    "RPMlo",
+    "TPSv",
+    "TPS%",
+    "ECTv",
+    "ECTc",
+    "IATv",
+    "IATc",
+    "MAPv",
+    "MAPkPa",
+    "",
+    "",
+    "vBAT",
+    "Speed",
+    "INJhi",
+    "INJlo",
+    "AFR?"
+];
+
+var helps_D1 = [
+    "Sender",
+    "Length",
+    "Cmd",
+    "Table",
+    "Neutral",
+    "",
+    "",
+    "",
+    "Engine"
+];
+
+var table_11 = [];
+var table_D1 = [];
+
+function parseData(data)
+{
+    var lines = data.split("\n");
+    table_11 = [];
+    table_D1 = [];
+    
+    for (var i in lines)
+    {
+        var l = lines[i];
+        
+        // New data format has timestamps
+        if (l.substr(13,1) == " ")
+        {
+            l = l.substr(14);
+        }
+        
+        var tbl = l.substr(6, 2);
+        
+        if (tbl == "11")
+        {
+            table_11.push(l);
+        }
+    
+        if (tbl == "D1")
+        {
+            table_D1.push(l);
+        }
+    }
+
+    console.log("Table 11 lines: " + table_11.length);
+    console.log("Table D1 lines: " + table_D1.length);
+    
+    $("#slider").slider("option", "max", Math.min(table_11.length, table_D1.length)-1);
+}
+
+function drawTable(tbl, index, id, helps)
+{
+    var l = tbl[index];
+    var vals = [];
+    
+    while (l.length > 0)
+    {
+        vals.push(l.substr(0, 2));
+        l = l.substr(2);
+    }
+
+    $(id).empty();
+    
+    for (var i in vals)
+    {
+        var v = vals[i];
+        var vd = parseInt(v, 16);
+        
+        if ($("#dec").prop("checked"))
+        {
+            v = vd;
+        }
+        
+        var h = helps[i] ? helps[i] : "";
+    
+        $(id).append(`<tr><td>${i}</td><td>${v}</td><td>${h}</td></tr>`);   
+    }
+}
+
+
+$( document ).ready(function() {
+    console.log("ready...");
+    
+    $("#logfile").change(function(e) {
+        
+        var file = e.target.files[0];
+        if (!file)
+        {
+            return;
+        }
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var data = e.target.result;
+            parseData(data);
+            drawTable(table_11, 0, "#table_11", helps_11);
+            drawTable(table_D1, 0, "#table_D1", helps_D1);
+        };
+        reader.readAsText(file);
+    });
+    
+    $("#slider").slider();
+    
+    $("#slider").on("slidechange", function(e, ui) {
+        var i = $(this).slider("value");
+        drawTable(table_11, i, "#table_11", helps_11);
+        drawTable(table_D1, i, "#table_D1", helps_D1);
+    });
+});
+
+</script>
+
+<input id="logfile" type="file"></input><br>
+<br>
+<div style="width:600px" id="slider"></div><br>
+
+<table id="table_11">
+</table>
+
+<table id="table_D1">
+</table>
+
+<br>
+
+<input id="dec" type="checkbox">Show as decimal</input>
+
+</body>
+</html>
