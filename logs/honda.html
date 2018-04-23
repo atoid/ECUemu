@@ -1,8 +1,12 @@
 <html>
 <head>
-<title>Honda ECU viewer</title>
+<title>Honda ECU log viewer</title>
 
 <link rel="stylesheet" href="http://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.1/dist/leaflet.css"
+   integrity="sha512-Rksm5RenBEKSKFjgI3a41vrjkw4EVPlJ3+OiI65vTjIdo9brlAacEuKOiQ5OFh7cOI1bkDwLqdLw3Zg0cRJAAQ=="
+   crossorigin=""/>
 
 <style>
 
@@ -12,11 +16,31 @@ table, th, td {
 
 table {
     display: inline-block;
+    vertical-align:top;
 }
 
 td {
     min-width: 30px;
     text-align: center;
+}
+
+div {
+    vertical-align:top;
+}
+
+.dash-div {
+}
+
+.dash-cont {
+    font-weight: bold;
+    opacity: 1.0;
+}
+
+.arrow-div {
+    width: 19px;
+    height: 19px;
+    transform: rotate(90deg);
+    transform-origin: 50% 50%;
 }
 
 </style>
@@ -29,9 +53,15 @@ td {
   
 <script src="http://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
 
+<script src="https://unpkg.com/leaflet@1.3.1/dist/leaflet.js"
+   integrity="sha512-/Nsx9X4HebavoBvEBuyp3I7od5tA0UzAxs+j83KgC8PU0kgB4XiK4Lfe4y4cgBtaRJQEIFCW+oC506aPT2L1zw=="
+   crossorigin=""></script>
+
 <script>
 
 "use strict";
+
+const RADIUS_ROUTE_POINT = 3;
 
 var helps_11 = [
     "Sender",
@@ -72,50 +102,68 @@ var helps_D1 = [
 var table_11 = [];
 var table_D1 = [];
 
-function parseData(data)
+var ecu_timestamps = [];
+var gps_timestamps = [];
+
+var ecu_data = [];
+var gps_data = [];
+var merged_data = [];
+
+var map;
+var route;
+var pos_marker;
+var fromClick;
+
+function openRoutePopup(i)
 {
-    var lines = data.split("\n");
-    table_11 = [];
-    table_D1 = [];
-    
-    for (var i in lines)
+    if (i === undefined)
     {
-        var l = lines[i];
-        
-        // New data format has timestamps
-        if (l.substr(13,1) == " ")
-        {
-            l = l.substr(14);
-        }
-        
-        var tbl = l.substr(6, 2);
-        
-        if (tbl == "11")
-        {
-            table_11.push(l);
-        }
-    
-        if (tbl == "D1")
-        {
-            table_D1.push(l);
-        }
+        return;
     }
 
-    console.log("Table 11 lines: " + table_11.length);
-    console.log("Table D1 lines: " + table_D1.length);
+    var gps = merged_data[i].data.split(",");
+        
+    var popup = `
+      <table>
+      <tr>
+        <td>Time</td><td>${merged_data[i].ts}</td>
+      </tr>
+      <tr>
+        <td>Lat</td><td>${gps[0]}</td>
+      </tr>
+      <tr>
+        <td>Lng</td><td>${gps[1]}</td>
+      </tr>
+      <tr>
+        <td>Alt</td><td>${gps[2]}</td>
+      </tr>
+      <tr>
+        <td>Speed</td><td>${gps[3]}</td>
+      </tr>
+      </table>
+    `;
     
-    $("#slider").slider("option", "max", Math.min(table_11.length, table_D1.length)-1);
+    map.openPopup(popup, merged_data[i].layer.getLatLng());
 }
 
-function drawTable(tbl, index, id, helps)
+function getTimestamp(ts)
 {
-    var l = tbl[index];
+    var h = parseInt(ts.substr(0, 2))
+    var m = parseInt(ts.substr(3, 2))
+    var s = parseInt(ts.substr(6, 2))
+    var ms = parseInt(ts.substr(9, 4)) 
+
+    return 1000 * (3600*h + 60*m + s) + ms;
+}
+
+function drawTable(data, id, helps)
+{
     var vals = [];
     
-    while (l.length > 0)
+    while (data.length > 0)
     {
-        vals.push(l.substr(0, 2));
-        l = l.substr(2);
+        vals.push(data.substr(0, 2));
+        data = data.substr(2);
     }
 
     $(id).empty();
@@ -136,11 +184,296 @@ function drawTable(tbl, index, id, helps)
     }
 }
 
+function updateEcuTables(i)
+{
+    var tmp = merged_data[i];
+    drawTable(tmp.data, "#table_11", helps_11);
+
+    if (tmp.d1_link)
+    {
+        drawTable(tmp.d1_link.data, "#table_D1", helps_D1);
+    }
+ }
+
+function updateMap(index)
+{
+    var i_gps = findClosestData(index, "GPS");
+    if (i_gps !== undefined)
+    {
+        var layer = merged_data[i_gps].layer;
+        pos_marker.setLatLng(layer.getLatLng());
+
+        var gps = merged_data[i_gps].data.split(",");
+        if (gps[3] > 0 && gps[4] !== undefined)
+        {
+            var bearing = gps[4];
+            $(".arrow-div").css('transform', `rotate(${bearing}deg`);
+            $(".circle-div").hide({duration:0});
+            $(".arrow-div").show({duration:0});
+        }
+        else
+        {
+            $(".circle-div").show({duration:0});
+            $(".arrow-div").hide({duration:0});
+        }
+    }
+        
+    var i_ecu = findClosestData(index, "ECU");
+    if (i_ecu !== undefined)
+    {
+        updateEcuTables(i_ecu);
+        var vals_11 = get_vals(merged_data[i_ecu].data);
+        var vals_d1;
+        
+        if (merged_data[i_ecu].d1_link)
+        {
+            vals_d1 = get_vals(merged_data[i_ecu].d1_link.data);
+        }
+        else
+        {
+            vals_d1 = [0, 0, 0, 0, 0];
+        }
+        
+        var speed = vals_11[17];
+        var rpm = vals_11[4] * 256 + vals_11[5];
+        
+        $("#dash_cont").html(`
+            <table>
+              <tr><td>RPM</td><td>${rpm}</td></tr>
+              <tr><td>km/h</td><td>${speed}</td></tr>
+              <tr><td>Gear</td><td>${get_gear(speed, rpm, vals_d1[4])}</td></tr>
+              <tr><td>AFR</td><td>${(vals_11[20]/16).toFixed(1)}</td></tr>
+              <tr><td>&#8451;</td><td>${vals_11[9]-40}</td></tr>
+            </table>
+        `);
+    }
+    else
+    {
+        if (fromClick)
+        {
+            fromClick = false;
+            openRoutePopup(i_gps);
+        }
+    }
+}
+
+function get_vals(l)
+{
+    var vals = [];
+    
+    while (l.length > 0)
+    {
+        vals.push(parseInt(l.substr(0, 2), 16));
+        l = l.substr(2);
+    }
+
+    return vals;
+}
+
+function get_gear(speed, rpm, neutral)
+{
+    if (neutral & 1)
+    {
+        return "-";
+    }
+    
+    var r = speed / rpm;
+
+    if (r > 0.005 && r < 0.007)
+    {
+        return "1";
+    }
+
+    if (r > 0.009 && r < 0.011)
+    {
+        return "2";
+    }
+
+    if (r > 0.012 && r < 0.014)
+    {
+        return "3";
+    }
+
+    if (r > 0.015 && r < 0.017)
+    {
+        return "4";
+    }
+
+    if (r > 0.017 && r < 0.019)
+    {
+        return "5";
+    }
+
+    if (r > 0.019 && r < 0.021)
+    {
+        return "6";
+    }
+    
+    return "-";
+    //return r.toFixed(4);
+}
+
+function selectClosest(i, i_bwd, i_fwd)
+{
+    if (i_bwd === undefined)
+    {
+        return i_fwd;
+    }
+
+    if (i_fwd === undefined)
+    {
+        return i_bwd;
+    }
+    
+    var ts0 = getTimestamp(merged_data[i].ts);
+    var ts1 = getTimestamp(merged_data[i_bwd].ts);
+    var ts2 = getTimestamp(merged_data[i_fwd].ts);
+    
+    var d1 = ts0-ts1;
+    var d2 = ts2-ts0;
+    
+    return d1 < d2 ? i_bwd : i_fwd;
+}
+
+function findClosestData(i, type)
+{
+    if (i === undefined)
+    {
+        return;
+    }
+
+    if (merged_data[i].type == type)
+    {
+        return i;
+    }
+    
+    var i_bwd, i_fwd;
+
+    for (var j = i; j >= 0; j--)
+    {
+        if (merged_data[j].type == type)
+        {
+        
+            i_bwd = j;
+            break;
+        }
+    }
+
+    for (var j = i; j < merged_data.length; j++)
+    {
+        if (merged_data[j].type == type)
+        {
+            i_fwd = j;
+            break;
+        }
+    }
+    
+    return selectClosest(i, i_bwd, i_fwd);
+}
+
+function addRoutePoint(i)
+{
+    var gps = merged_data[i].data.split(",");
+
+    var circle = L.circleMarker([gps[0], gps[1]], {
+        weight: 1,
+        color: '#0a0',
+        fillColor: '#0f0',
+        fillOpacity: 1.0,
+        radius: RADIUS_ROUTE_POINT
+    });
+    
+    route.addLayer(circle);
+    circle.my_index = i;
+    merged_data[i].layer = circle;
+    
+    circle.on("click", function(e) {
+        fromClick = true;
+        $("#slider").slider("value", e.target.my_index);
+    });
+}
+
+function mergeData(dst, data)
+{
+    if (dst == "ECU")
+    {
+        ecu_data = data.split("\n");
+    }
+    else
+    {
+        gps_data = data.split("\n");
+    }
+    
+    var sorted_data = [];
+    for (var i in ecu_data)
+    {
+        if (ecu_data[i] != "")
+        {
+            var ts = ecu_data[i].substr(0, 13);
+            var data = ecu_data[i].substr(14);
+            sorted_data.push({ts:ts, data:data, type:"ECU", table:data.substr(6, 2)});
+        }
+    }
+
+    for (var i in gps_data)
+    {
+        if (gps_data[i] != "")
+        {
+            var ts = gps_data[i].substr(0, 13);
+            var data = gps_data[i].substr(14);
+            sorted_data.push({ts:ts, data:data, type:"GPS"});
+        }
+    }
+
+    sorted_data.sort(function(a, b) {
+        return a.ts == b.ts ? 0 : (a.ts > b.ts ? 1 : -1);
+    });
+    
+    merged_data = [];
+        
+    for (var i = 0; i < sorted_data.length; i++)
+    {
+        if (sorted_data[i].type == "GPS")
+        {
+            merged_data.push(sorted_data[i]);
+        }
+        else
+        {
+            var tmp = sorted_data[i];
+            if (tmp.table == "11")
+            {
+                for (var j = i+1; j < sorted_data.length; j++)
+                {
+                    if (sorted_data[j].table == "D1")
+                    {
+                        tmp.d1_link = sorted_data[j];
+                        merged_data.push(tmp);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    if (gps_data.length > 0)
+    {
+        route.clearLayers();
+        for (var i in merged_data)
+        {
+            if (merged_data[i].type == "GPS")
+            {
+                addRoutePoint(i);
+            }
+        }
+    }    
+    
+    $("#slider").slider("option", "max", merged_data.length-1);
+}
 
 $( document ).ready(function() {
     console.log("ready...");
     
-    $("#logfile").change(function(e) {
+    $("#ecufile").change(function(e) {
         
         var file = e.target.files[0];
         if (!file)
@@ -150,9 +483,22 @@ $( document ).ready(function() {
         var reader = new FileReader();
         reader.onload = function(e) {
             var data = e.target.result;
-            parseData(data);
-            drawTable(table_11, 0, "#table_11", helps_11);
-            drawTable(table_D1, 0, "#table_D1", helps_D1);
+            mergeData("ECU", data);
+        };
+        reader.readAsText(file);
+    });
+
+    $("#gpsfile").change(function(e) {
+        
+        var file = e.target.files[0];
+        if (!file)
+        {
+            return;
+        }
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var data = e.target.result;
+            mergeData("GPS", data);
         };
         reader.readAsText(file);
     });
@@ -160,17 +506,70 @@ $( document ).ready(function() {
     $("#slider").slider();
     
     $("#slider").on("slidechange", function(e, ui) {
-        var i = $(this).slider("value");
-        drawTable(table_11, i, "#table_11", helps_11);
-        drawTable(table_D1, i, "#table_D1", helps_D1);
+        var i = ui.value;
+        updateMap(i);
     });
+    
+    $("#slider").on("slide", function(e, ui) {
+        var i = ui.value;
+            updateMap(i);
+    });
+    
+    map = L.map('mapid').setView([64.232634, 27.779594], 14);    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        opacity: 0.6
+    }).addTo(map);
+    
+    route = L.layerGroup();
+    map.addLayer(route);
+
+    L.control.dash({ position: 'topright' }).addTo(map);
+    
+    // Arrow marker
+    var arrow = L.divIcon({iconAnchor: [9, 9], className: '', html: `
+      <div class="arrow-div">
+        <img src="arrow.png">
+      </div>
+      <div class="circle-div">
+        <img src="circle.png">
+      </div>
+    `});
+    pos_marker = L.marker([64.232634, 27.779594], {icon: arrow}).addTo(map);
+
+    $(".arrow-div").hide({duration:0});
+    $(".circle-div").show({duration:0});
 });
+
+
+L.Control.Dash = L.Control.extend({
+    onAdd: function(map) {
+        var div = L.DomUtil.create('div', 'dash-div');
+        $(div).html("<div class='dash-cont' id='dash_cont'></div>");
+        return div;
+    },
+
+    onRemove: function(map) {
+        // Nothing to do here
+    }
+});
+
+L.control.dash = function(opts) {
+    return new L.Control.Dash(opts);
+}
 
 </script>
 
-<input id="logfile" type="file"></input><br>
+<input id="ecufile" type="file"></input>
+<input id="gpsfile" type="file"></input>
 <br>
-<div style="width:600px" id="slider"></div><br>
+<br>
+<div style="width:800px" id="slider"></div>
+<br>
+
+<div style="display:inline-block;height:600px;width:800px" id="mapid">
+</div>
+
+<div style="display:inline-block">
 
 <table id="table_11">
 </table>
@@ -179,8 +578,9 @@ $( document ).ready(function() {
 </table>
 
 <br>
+<input id="dec" type="checkbox" checked>Show as decimal</input>
 
-<input id="dec" type="checkbox">Show as decimal</input>
+</div>
 
 </body>
 </html>
