@@ -129,6 +129,9 @@ function openRoutePopup(i)
         <td>Time</td><td>${merged_data[i].ts}</td>
       </tr>
       <tr>
+        <td>km/h</td><td>${gps[3]}</td>
+      </tr>
+      <tr>
         <td>Lat</td><td>${gps[0]}</td>
       </tr>
       <tr>
@@ -136,9 +139,6 @@ function openRoutePopup(i)
       </tr>
       <tr>
         <td>Alt</td><td>${gps[2]}</td>
-      </tr>
-      <tr>
-        <td>Speed</td><td>${gps[3]}</td>
       </tr>
       </table>
     `;
@@ -216,6 +216,12 @@ function updateMap(index)
             $(".circle-div").show({duration:0});
             $(".arrow-div").hide({duration:0});
         }
+
+        if (fromClick)
+        {
+            fromClick = false;
+            openRoutePopup(i_gps);
+        }
     }
         
     var i_ecu = findClosestData(index, "ECU");
@@ -223,15 +229,11 @@ function updateMap(index)
     {
         updateEcuTables(i_ecu);
         var vals_11 = get_vals(merged_data[i_ecu].data);
-        var vals_d1;
+        var neutral = 0;
         
         if (merged_data[i_ecu].d1_link)
         {
-            vals_d1 = get_vals(merged_data[i_ecu].d1_link.data);
-        }
-        else
-        {
-            vals_d1 = [0, 0, 0, 0, 0];
+            neutral = get_vals(merged_data[i_ecu].d1_link.data)[4];
         }
         
         var speed = vals_11[17];
@@ -239,9 +241,10 @@ function updateMap(index)
         
         $("#dash_cont").html(`
             <table>
+              <tr><td>Time</td><td>${merged_data[i_ecu].ts.substr(0, 5)}</td></tr>
               <tr><td>RPM</td><td>${rpm}</td></tr>
               <tr><td>km/h</td><td>${speed}</td></tr>
-              <tr><td>Gear</td><td>${get_gear(speed, rpm, vals_d1[4])}</td></tr>
+              <tr><td>Gear</td><td>${get_gear(speed, rpm, neutral)}</td></tr>
               <tr><td>AFR</td><td>${(vals_11[20]/16).toFixed(1)}</td></tr>
               <tr><td>&#8451;</td><td>${vals_11[9]-40}</td></tr>
             </table>
@@ -249,10 +252,14 @@ function updateMap(index)
     }
     else
     {
-        if (fromClick)
+        if (i_gps !== undefined)
         {
-            fromClick = false;
-            openRoutePopup(i_gps);
+            $("#dash_cont").html(`
+                <table>
+                  <tr><td>Time</td><td>${merged_data[i_gps].ts.substr(0, 5)}</td></tr>
+                  <tr><td>km/h</td><td>${merged_data[i_gps].data.split(",")[3]}</td></tr>
+                </table>
+            `);
         }
     }
 }
