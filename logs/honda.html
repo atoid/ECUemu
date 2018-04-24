@@ -476,6 +476,7 @@ function mergeData(data)
     }    
     
     $("#slider").slider("option", "max", merged_data.length-1);
+    $("#slider").slider("value", 0);
 }
 
 function onFileChange(e)
@@ -509,7 +510,7 @@ $( document ).ready(function() {
         updateMap(i);
     });
     
-    map = L.map('mapid').setView([64.232634, 27.779594], 14);    
+    map = L.map('mapid').setView([64.232634, 27.779594], 13);    
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         opacity: 0.6
     }).addTo(map);
@@ -531,8 +532,62 @@ $( document ).ready(function() {
     
     pos_marker = L.marker([64.232634, 27.779594], {icon: arrow}).addTo(map);
     setBearing(0, 0);
+
+    checkOrigin();
     console.log("ready...");
 });
+
+function checkOrigin()
+{
+    if (document.origin == "null")
+    {
+        $("#dataurl").hide({duration:0});
+        return;
+    }
+        
+    $.get("MotoDash", function(res) {
+        $("#filelist").html(res);
+        
+        var filesECU = [];
+        var filesGPS = [];
+        $("#filelist tr>td:nth-child(2)").each(function() {
+            var tmp = $(this).text();
+            if (tmp.indexOf("ECU-") == 0)
+            {
+                filesECU.push(tmp);
+            }
+            if (tmp.indexOf("GPS-") == 0)
+            {
+                filesGPS.push(tmp);
+            }
+        });
+        
+        filesECU.sort();
+        filesGPS.sort();
+        
+        $("#dataurl").append("<option></option>");
+        
+        for (var i = 0; i < filesECU.length; i++)
+        {
+            $("#dataurl").append(`<option value="${filesECU[i]},${filesGPS[i]}">ECU + GPS (${filesECU[i].substr(4, 19)})</option>`);
+        }
+    });
+    
+    $("#datafile").hide({duration:0});
+
+    $("#dataurl").change(function() {
+        var files = $(this).val();
+        if (files != "")
+        {
+            files = files.split(",");
+            $.each(files, function(index, value) {
+                $.get("MotoDash/" + value, function(res) {
+                    mergeData(res);
+                });
+            });
+        }
+    });
+}
 
 
 L.Control.Dash = L.Control.extend({
@@ -554,6 +609,7 @@ L.control.dash = function(opts) {
 </script>
 
 <input id="datafile" type="file" multiple></input>
+<select id="dataurl"></select>
 <br>
 <br>
 <div style="width:800px" id="slider"></div>
@@ -572,6 +628,10 @@ L.control.dash = function(opts) {
 
 <br>
 <input id="dec" type="checkbox" checked>Show as decimal</input>
+
+</div>
+
+<div id="filelist" style="display:none">
 
 </div>
 
